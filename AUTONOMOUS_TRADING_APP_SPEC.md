@@ -1023,6 +1023,381 @@ services:
 
 ---
 
+## 24. Step-by-Step Getting Started Guide
+
+Follow this in order. Do **not** skip the paper trading phase.
+
+---
+
+### STEP 1 — Install Prerequisites (30 minutes)
+
+**On your local machine (Windows/Mac/Linux):**
+
+```bash
+# 1a. Install Python 3.12
+# Windows: download from python.org, tick "Add to PATH"
+# Mac:
+brew install python@3.12
+# Ubuntu/Debian:
+sudo apt update && sudo apt install python3.12 python3.12-venv python3-pip -y
+
+# 1b. Install Docker Desktop
+# Download from docker.com/products/docker-desktop
+# Start Docker Desktop and ensure it's running
+
+# 1c. Install Git
+# Windows: git-scm.com  |  Mac: brew install git  |  Ubuntu: sudo apt install git
+
+# 1d. Verify everything works
+python3.12 --version   # Should print Python 3.12.x
+docker --version       # Should print Docker 24.x or higher
+git --version
+```
+
+---
+
+### STEP 2 — Create Broker Accounts (1–2 hours)
+
+Do this while code is being set up. Both accounts can run in parallel.
+
+#### 2a. Binance (Phase 1 — Crypto)
+1. Go to binance.com → Register with your email
+2. Complete KYC identity verification (passport/driving licence — required for UK)
+3. Enable 2FA (Google Authenticator recommended)
+4. Go to **Account → API Management → Create API**
+   - Label: `autonomous-trader`
+   - Enable: ✅ Read Info, ✅ Spot & Margin Trading, ✅ Futures Trading
+   - Restrict to your home IP address for security
+5. **Save the API Key and Secret Key** — the secret is shown only once
+6. To use the testnet first: visit `testnet.binancefuture.com` → generate testnet keys separately
+
+#### 2b. Interactive Brokers (Phase 2 — Stocks/Options)
+1. Go to interactivebrokers.co.uk → Open Account
+2. Choose **Individual** account, select **Stocks + Options + Futures**
+3. Complete KYC (takes 1–3 business days for approval)
+4. Once approved: log into Client Portal → Settings → API → **Enable Paper Trading**
+5. Download **TWS (Trader Workstation)** — required for the API to connect locally
+6. In TWS: Edit → Global Configuration → API → Settings → ✅ Enable ActiveX and Socket Clients, port `7497`
+
+> **Start with IBKR paper trading account** — no real money, identical API to live.
+
+---
+
+### STEP 3 — Get Market Data API Keys (20 minutes)
+
+#### 3a. Polygon.io (stock data)
+1. Go to polygon.io → Sign Up (free tier: 15-min delayed data, paid: real-time)
+2. Dashboard → API Keys → Copy your key
+3. Free tier is fine for backtesting and initial paper trading
+
+#### 3b. NewsAPI (news sentiment)
+1. Go to newsapi.org → Get API Key (free: 100 requests/day)
+2. Copy the API key from your account dashboard
+
+---
+
+### STEP 4 — Set Up the Project (15 minutes)
+
+```bash
+# 4a. Create your project directory
+mkdir trading-app && cd trading-app
+
+# 4b. Create Python virtual environment
+python3.12 -m venv venv
+source venv/bin/activate          # Mac/Linux
+# OR: venv\Scripts\activate       # Windows
+
+# 4c. Install core dependencies
+pip install --upgrade pip
+pip install \
+  alpaca-py \
+  python-binance \
+  backtrader vectorbt \
+  pandas numpy scipy \
+  ta-lib \
+  scikit-learn lightgbm \
+  transformers torch \
+  sqlalchemy asyncpg \
+  redis aiohttp \
+  prometheus-client \
+  structlog \
+  opentelemetry-sdk opentelemetry-exporter-otlp \
+  fastapi uvicorn \
+  pydantic-settings python-dotenv \
+  requests websockets \
+  python-telegram-bot
+
+# Note: ta-lib requires the C library first:
+# Mac: brew install ta-lib
+# Ubuntu: sudo apt-get install libta-lib-dev
+# Windows: download .whl from https://github.com/cgohlke/talib-build/releases
+```
+
+---
+
+### STEP 5 — Configure Environment Variables (10 minutes)
+
+```bash
+# 5a. Create your .env file in the project root
+touch .env
+```
+
+Open `.env` in any text editor and fill in:
+
+```bash
+# ===== SAFETY — ALWAYS START WITH PAPER =====
+PAPER_TRADING=true
+INITIAL_CAPITAL_GBP=100
+
+# ===== BINANCE =====
+BINANCE_API_KEY=your_binance_api_key_here
+BINANCE_SECRET_KEY=your_binance_secret_key_here
+BINANCE_TESTNET=true          # Change to false only when ready for real money
+
+# ===== INTERACTIVE BROKERS =====
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497                 # 7497 = paper trading, 7496 = live
+IBKR_CLIENT_ID=1
+
+# ===== MARKET DATA =====
+POLYGON_API_KEY=your_polygon_key_here
+NEWS_API_KEY=your_newsapi_key_here
+
+# ===== NOTIFICATIONS =====
+# Create a Telegram bot: search @BotFather on Telegram, /newbot, copy token
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+# Get your chat ID: message @userinfobot on Telegram
+TELEGRAM_CHAT_ID=your_chat_id_here
+
+# ===== DATABASE =====
+DB_PASSWORD=choose_a_strong_password_here
+TIMESCALEDB_URL=postgresql://trader:choose_a_strong_password_here@localhost:5432/trading
+REDIS_URL=redis://localhost:6379
+
+# ===== RISK LIMITS — DO NOT CHANGE UNTIL EXPERIENCED =====
+MAX_DAILY_LOSS_PCT=0.20
+MAX_DRAWDOWN_PCT=0.35
+MAX_POSITION_SIZE_PCT=0.25
+PHASE1_TARGET_GBP=10000
+PHASE2_TARGET_GBP=1000000
+```
+
+---
+
+### STEP 6 — Start the Infrastructure (5 minutes)
+
+```bash
+# 6a. Start TimescaleDB + Redis + observability stack
+docker compose up -d
+
+# 6b. Verify all containers are running
+docker compose ps
+# Should show: timescaledb, redis, prometheus, grafana, loki, promtail, jaeger, alertmanager
+
+# 6c. Check Grafana is accessible
+# Open browser: http://localhost:3000
+# Login: admin / trading123
+# You should see the Grafana home screen — dashboards load after first data arrives
+
+# 6d. Initialise the database schema
+python scripts/init_db.py
+# Creates: ohlcv_1m, ohlcv_5m, ohlcv_1h, ohlcv_1d, trades, orders, positions tables
+```
+
+---
+
+### STEP 7 — Download Historical Data for Backtesting (1–2 hours)
+
+```bash
+# 7a. Download 3 years of BTC/USDT 15-minute candles from Binance
+python scripts/download_historical.py \
+  --symbol BTCUSDT \
+  --interval 15m \
+  --start 2022-01-01
+
+# 7b. Download ETH, SOL, BNB too (for strategy diversification)
+python scripts/download_historical.py --symbol ETHUSDT --interval 15m --start 2022-01-01
+python scripts/download_historical.py --symbol SOLUSDT --interval 15m --start 2022-01-01
+
+# Expected download time: ~30–60 minutes per symbol
+# Data stored in TimescaleDB automatically
+```
+
+---
+
+### STEP 8 — Run Backtests (2–4 hours)
+
+```bash
+# 8a. Backtest the Phase 1 crypto scalp strategy
+python backtest/runner.py \
+  --strategy crypto_scalp \
+  --symbols BTCUSDT,ETHUSDT,SOLUSDT \
+  --start 2022-01-01 \
+  --end 2024-12-31 \
+  --initial-capital 100
+
+# 8b. Review the results — must meet ALL criteria before proceeding:
+# ✅ Sharpe Ratio > 1.5
+# ✅ Max Drawdown < 30%
+# ✅ Win Rate > 45%
+# ✅ Profit Factor > 1.5
+# ✅ Total trades > 200
+
+# 8c. Walk-forward validation (tests against unseen data)
+python backtest/walk_forward.py --strategy crypto_scalp --folds 6
+
+# Results saved to: backtest/results/crypto_scalp_YYYYMMDD.html
+# Open in browser to see equity curve, trade log, and statistics
+```
+
+> If any criterion fails, adjust strategy parameters in `config/phase1_config.yaml` and re-run. **Do not proceed to paper trading if backtest fails.**
+
+---
+
+### STEP 9 — Paper Trade for 5–7 Days (1 week)
+
+```bash
+# 9a. Start the trading engine in paper mode
+# Confirm PAPER_TRADING=true in your .env
+python core/engine.py --phase 1
+
+# 9b. Monitor in real-time
+# Open http://localhost:3000 → "Trading Overview" dashboard
+# You should see:
+# • Equity curve updating (starts at £100 simulated)
+# • Trades appearing in the trade log
+# • Telegram notifications arriving on your phone
+
+# 9c. Check paper trading performance daily:
+python reporting/daily_summary.py
+# Shows: trades today, P&L, win rate, any risk events triggered
+```
+
+**Paper trading pass criteria (after 5+ days):**
+- [ ] At least 20 paper trades executed
+- [ ] Positive P&L overall (edge confirmed)
+- [ ] No unexpected errors or crashes
+- [ ] All Telegram alerts received correctly
+- [ ] Grafana dashboards showing data correctly
+- [ ] Risk checks triggered correctly on simulated loss scenarios
+
+---
+
+### STEP 10 — Go Live with £100 (The Moment of Truth)
+
+```bash
+# Only proceed if Step 9 criteria are ALL met.
+
+# 10a. Fund your Binance account
+# Binance → Wallet → Fiat → Deposit GBP
+# Use bank transfer (faster payment) — usually arrives in minutes
+# Deposit £100
+
+# 10b. Convert to USDT (the trading currency)
+# Binance → Trade → BTC/GBP or use Convert feature
+# Convert £95 to USDT (keep £5 as buffer for fees)
+
+# 10c. Switch to live mode
+# Edit .env:
+PAPER_TRADING=false
+BINANCE_TESTNET=false
+
+# 10d. Start the live engine
+python core/engine.py --phase 1
+
+# 10e. Verify first real trade
+# Watch the dashboard — within the first market session you should see:
+# • Real account balance reflected in Grafana
+# • First trade notification on Telegram with real order ID
+# • Position appearing in Binance app
+```
+
+---
+
+### STEP 11 — Daily Operating Routine
+
+Once live, your daily checklist:
+
+```
+Morning (before market session):
+  □ Check Grafana "System Health" — all feeds green
+  □ Check no overnight risk events in Telegram
+  □ Review yesterday's trade log: python reporting/daily_summary.py --date yesterday
+
+During trading (automated — just monitor):
+  □ Grafana "Trading Overview" open in browser
+  □ Telegram notifications arriving
+  □ Intervene ONLY if circuit breaker fires (system halts itself)
+
+Evening:
+  □ Run daily summary report
+  □ Note equity vs. target curve
+  □ Review any trades with loss > 10% for signal quality
+```
+
+---
+
+### STEP 12 — Phase Transition to £10,000
+
+The system handles this automatically, but you should:
+
+```bash
+# When equity hits £10,000, the engine logs:
+# "PHASE TRANSITION: Entering Phase 2 systematic trading"
+# And sends Telegram alert
+
+# What changes automatically:
+# • Max position size drops from 25% → 10%
+# • Phase 1 strategies disabled
+# • Phase 2 strategies (dual momentum, pairs, mean reversion) enabled
+# • Daily loss limit tightens from 20% → 5%
+
+# What YOU should do at this point:
+# 1. Open an Interactive Brokers account if not done (for stocks/options)
+# 2. Consider IG Group spread betting account for UK tax-free gains
+# 3. Transfer £5,000 to IBKR to activate stock/ETF strategies
+# 4. Keep £5,000 on Binance for continued crypto allocation
+# 5. Run Phase 2 backtests (should already be done — do it now if not):
+python backtest/runner.py --strategy dual_momentum --start 2022-01-01 --end 2024-12-31
+python backtest/runner.py --strategy pairs_trading --start 2022-01-01 --end 2024-12-31
+python backtest/runner.py --strategy mean_reversion --start 2022-01-01 --end 2024-12-31
+```
+
+---
+
+### STEP 13 — Tax Reporting (Ongoing)
+
+```bash
+# Export trade log at any time
+python reporting/trade_log.py --format CSV --output trades_export.csv
+
+# Generate HMRC CGT report at tax year end (5 April)
+python reporting/tax_reporter.py --tax-year 2026-27 --output cgt_report_2627.csv
+
+# The report includes:
+# • Each disposal (sell): date, asset, proceeds, cost basis, gain/loss
+# • Section 104 pool calculations for same-asset buys/sells
+# • Bed & breakfast rule adjustments (30-day matching)
+# • Running total vs. CGT annual allowance (£3,000 for 2025/26)
+```
+
+> **Important:** Keep ALL trade records. Crypto is a taxable asset under HMRC. Consult a UK tax accountant once annual gains exceed £3,000.
+
+---
+
+### Troubleshooting Quick Reference
+
+| Problem | Check | Fix |
+|---------|-------|-----|
+| No trades executing | Grafana signal strength | Signals below threshold — market may be ranging |
+| Binance API error 403 | IP whitelist in Binance API settings | Add your current IP or remove IP restriction |
+| Database connection failed | `docker compose ps` | Restart: `docker compose restart timescaledb` |
+| Feed latency > 500ms | System Health dashboard | Check internet connection; restart feed: `python data/feeds/binance_ws.py --restart` |
+| Telegram alerts not arriving | Bot token in `.env` | Re-run: `python monitoring/telegram_bot.py --test` |
+| Circuit breaker triggered | Drawdown > 25% | Review losing trades, fix strategy params, manually restart: `python core/engine.py --reset-circuit-breaker` |
+
+---
+
 ## 23. Key Principles & Wisdom Embedded
 
 1. **Cut losses fast, let winners run** — Asymmetric R:R is non-negotiable. Every strategy enforces 2:1 minimum.
