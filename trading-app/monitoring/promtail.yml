@@ -1,0 +1,31 @@
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: trading-app
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: trading-app
+          __path__: /app/logs/*.json
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            event_type: event_type
+            strategy: strategy
+            symbol: symbol
+      - labels:
+          level:
+          event_type:
+          strategy:
+          symbol:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
