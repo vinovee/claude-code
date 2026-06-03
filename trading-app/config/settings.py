@@ -46,10 +46,13 @@ class Settings(BaseSettings):
     # ── Capital ───────────────────────────────────────────────────────────────
     initial_capital_gbp: float = 100.0
 
-    # ── Binance ───────────────────────────────────────────────────────────────
-    binance_api_key: str = ""
-    binance_secret_key: str = ""
-    binance_testnet: bool = True
+    # ── Kraken (primary UK-compliant crypto broker) ───────────────────────────
+    kraken_api_key: str = ""
+    kraken_private_key: str = ""
+
+    # ── Coinbase Advanced Trade (backup crypto broker) ────────────────────────
+    coinbase_api_key: str = ""
+    coinbase_private_key: str = ""
 
     # ── Interactive Brokers ───────────────────────────────────────────────────
     ibkr_host: str = "127.0.0.1"
@@ -114,12 +117,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _force_paper_trading_when_no_key(self) -> "Settings":
-        """Ensure paper_trading is True when no Binance API key is configured.
-
-        This is a safety guardrail: without credentials the system cannot
-        place real orders, so we always fall back to paper mode.
-        """
-        if not self.binance_api_key.strip():
+        """Ensure paper_trading is True when no broker API key is configured."""
+        if not self.kraken_api_key.strip() and not self.coinbase_api_key.strip():
             object.__setattr__(self, "paper_trading", True)
         return self
 

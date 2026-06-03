@@ -1,0 +1,51 @@
+phase: 1
+description: "Aggressive growth: £100 → £10,000"
+
+symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+  - BNBUSDT
+
+strategies:
+  crypto_scalp:
+    enabled: true
+    timeframes: ["5m", "15m"]
+    rsi_period: 14
+    rsi_buy_threshold: 55
+    rsi_sell_threshold: 45
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    volume_ratio_min: 1.5
+    atr_period: 14
+    stop_atr_mult: 1.5
+    target_atr_mult: 3.0
+    min_candles: 50
+
+  breakout:
+    enabled: true
+    timeframes: ["1h"]
+    lookback_period: 20
+    adx_threshold: 25
+    volume_ratio_min: 2.0
+    atr_period: 14
+    target_risk_mult: 3.0
+    min_candles: 30
+
+  news_catalyst:
+    enabled: true
+    sentiment_threshold: 0.80
+    max_news_age_seconds: 120
+    stop_pct: 0.02
+    target_pct: 0.05
+    signal_expiry_minutes: 15
+
+risk:
+  max_daily_loss_pct: 0.20
+  max_drawdown_pct: 0.35
+  max_position_size_pct: 0.25
+  min_rr_ratio: 2.0
+  max_spread_bps: 50
+  ruin_floor_gbp: 20.0
+  max_concurrent_positions: 3

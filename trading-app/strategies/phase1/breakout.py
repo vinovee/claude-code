@@ -38,16 +38,15 @@ _VOL_RATIO_BREAKOUT: float = 2.0
 # ADX threshold for a confirmed trend
 _ADX_THRESHOLD: float = 25.0
 
-# ATR multipliers
-_STOP_ATR_MULT: float = 1.0   # Stop is placed at the candle's low/high
-_TARGET_RR_MULT: float = 3.0  # Target = entry + 3 × risk
+# Target risk multiple
+_TARGET_RR_MULT: float = 3.0
 
 # Lookback window for rolling high/low used in breakout detection
 _BREAKOUT_PERIOD: int = 20
 
 # Strength scaling — normalisation caps
-_ADX_STRONG: float = 50.0    # ADX value treated as "maximum strength"
-_VOL_STRONG: float = 4.0     # Vol ratio treated as "maximum volume strength"
+_ADX_STRONG: float = 50.0   # ADX value treated as "maximum strength"
+_VOL_STRONG: float = 4.0    # Vol ratio treated as "maximum volume strength"
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +61,8 @@ class BreakoutStrategy(Strategy):
     ~~~~~~~~~~~~
     BUY — all of the following must hold:
 
-    * Close breaks above the 20-period rolling high (previous bars only).
+    * Close breaks above the 20-period rolling high (previous bars only,
+      i.e. the high is calculated from bars shifted by 1).
     * Volume ratio (current / 20-bar SMA) > 2.0.
     * ADX(14) > 25 (confirmed trend / momentum behind the break).
 
@@ -81,7 +81,8 @@ class BreakoutStrategy(Strategy):
     Signal strength
     ~~~~~~~~~~~~~~~
     Composed from ADX value (stronger trend → higher score) and the degree of
-    volume excess above the 2× threshold.
+    volume excess above the 2× threshold, plus how far the close has broken
+    past the prior rolling level.
 
     Parameters
     ----------
@@ -156,12 +157,13 @@ class BreakoutStrategy(Strategy):
         # ── Compute indicators ────────────────────────────────────────────────
         adx_series = TechnicalIndicators.adx(df, period=14)
         atr_series = TechnicalIndicators.atr(df, period=14)
-        ema20_series = TechnicalIndicators.ema(df["close"], period=20)
+        ema20_series = TechnicalIndicators.ema(df, period=20)
         vol_ratio_series = TechnicalIndicators.volume_sma_ratio(df, period=20)
 
-        # rolling_high/low exclude the current candle (shift(1).rolling.max/min)
-        rolling_high_series = TechnicalIndicators.rolling_high(df, period=_BREAKOUT_PERIOD)
-        rolling_low_series = TechnicalIndicators.rolling_low(df, period=_BREAKOUT_PERIOD)
+        # Rolling high/low exclude the current candle (shifted by 1 bar) so
+        # a breakout is only counted when close exceeds the *prior* range top/bottom.
+        prev_high_series = df["high"].shift(1).rolling(window=_BREAKOUT_PERIOD).max()
+        prev_low_series = df["low"].shift(1).rolling(window=_BREAKOUT_PERIOD).min()
 
         # Current bar scalars
         close_cur = float(df["close"].iloc[-1])
@@ -171,10 +173,14 @@ class BreakoutStrategy(Strategy):
         adx_val = float(adx_series.dropna().iloc[-1]) if not adx_series.dropna().empty else 0.0
         atr_val = float(atr_series.dropna().iloc[-1]) if not atr_series.dropna().empty else 0.0
         ema20_val = float(ema20_series.iloc[-1])
-        vol_ratio = float(vol_ratio_series.iloc[-1]) if not pd.isna(vol_ratio_series.iloc[-1]) else 0.0
 
-        prev_high = float(rolling_high_series.iloc[-1]) if not pd.isna(rolling_high_series.iloc[-1]) else float("inf")
-        prev_low = float(rolling_low_series.iloc[-1]) if not pd.isna(rolling_low_series.iloc[-1]) else float("-inf")
+        vol_ratio_raw = vol_ratio_series.iloc[-1]
+        vol_ratio = float(vol_ratio_raw) if not pd.isna(vol_ratio_raw) else 0.0
+
+        prev_high_raw = prev_high_series.iloc[-1]
+        prev_low_raw = prev_low_series.iloc[-1]
+        prev_high = float(prev_high_raw) if not pd.isna(prev_high_raw) else float("inf")
+        prev_low = float(prev_low_raw) if not pd.isna(prev_low_raw) else float("-inf")
 
         indicator_snapshot = {
             "adx": round(adx_val, 4),
@@ -248,7 +254,10 @@ class BreakoutStrategy(Strategy):
 
         # ── Signal strength ───────────────────────────────────────────────────
         # ADX component: linearly scales from ADX_THRESHOLD (0) to ADX_STRONG (1)
-        adx_score = min((adx_val - _ADX_THRESHOLD) / (_ADX_STRONG - _ADX_THRESHOLD), 1.0)
+        adx_score = min(
+            (adx_val - _ADX_THRESHOLD) / (_ADX_STRONG - _ADX_THRESHOLD),
+            1.0,
+        )
 
         # Volume component: scales from VOL_RATIO_BREAKOUT (0) to VOL_STRONG (1)
         vol_score = min(
@@ -257,13 +266,15 @@ class BreakoutStrategy(Strategy):
         )
 
         # Breakout margin component: how far above/below the breakout level
-        if prev_high > 0 and side == "BUY":
+        if side == "BUY" and prev_high > 0.0:
             margin_pct = (close_cur - prev_high) / prev_high
-        elif prev_low > 0 and side == "SELL":
+        elif side == "SELL" and prev_low > 0.0:
             margin_pct = (prev_low - close_cur) / prev_low
         else:
             margin_pct = 0.0
-        margin_score = min(margin_pct / 0.01, 1.0)  # normalise to 1% breakout = 1.0
+        # Normalise: 1% breakout above the level scores 1.0
+        margin_score = min(margin_pct / 0.01, 1.0)
+        margin_score = max(margin_score, 0.0)
 
         strength = (
             0.40 * adx_score

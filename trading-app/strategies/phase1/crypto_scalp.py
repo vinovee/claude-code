@@ -21,7 +21,7 @@ import pandas as pd
 import structlog
 
 from config.settings import get_settings
-from data.indicators.technical import MarketRegime, MarketRegimeDetector, TechnicalIndicators
+from data.indicators.technical import MarketRegimeDetector, TechnicalIndicators
 from strategies.base import Signal, Strategy
 
 log = structlog.get_logger(__name__)
@@ -33,13 +33,13 @@ log = structlog.get_logger(__name__)
 _MIN_CANDLES: int = 50
 
 # RSI thresholds
-_RSI_BULL_CROSS: float = 55.0      # cross above triggers long consideration
-_RSI_BEAR_CROSS: float = 45.0      # cross below triggers short consideration
-_RSI_BULL_RANGE_LOW: float = 45.0  # rising-RSI long window lower bound
+_RSI_BULL_CROSS: float = 55.0       # cross above triggers long consideration
+_RSI_BEAR_CROSS: float = 45.0       # cross below triggers short consideration
+_RSI_BULL_RANGE_LOW: float = 45.0   # rising-RSI long window lower bound
 _RSI_BULL_RANGE_HIGH: float = 65.0  # rising-RSI long window upper bound
 
 # Volume
-_VOL_RATIO_THRESHOLD: float = 1.5  # current vol must exceed SMA by this multiple
+_VOL_RATIO_THRESHOLD: float = 1.5   # current vol must exceed SMA by this multiple
 
 # ATR multipliers
 _STOP_ATR_MULT: float = 1.5
@@ -61,7 +61,7 @@ class CryptoScalpStrategy(Strategy):
     * RSI(14) crosses above 55, **or** RSI is in [45, 65] with a rising slope.
     * MACD histogram is positive and increasing (current > previous).
     * Volume ratio (current / 20-bar SMA) > 1.5.
-    * Close is above the Bollinger midline.
+    * Close is above the Bollinger midline (20-period SMA).
 
     SELL (short) — mirror of the above:
 
@@ -143,20 +143,24 @@ class CryptoScalpStrategy(Strategy):
             return None
 
         # ── Market regime gate ────────────────────────────────────────────────
-        regime = MarketRegimeDetector.detect(df)
-        if regime == MarketRegime.RANGING:
+        regime: str = MarketRegimeDetector.detect(df)
+        if regime == "RANGING":
             self._log.debug(
                 "regime_skip",
                 symbol=symbol,
                 timeframe=timeframe,
-                regime=regime.value,
+                regime=regime,
             )
             return None
 
         # ── Compute indicators ────────────────────────────────────────────────
-        rsi_series = TechnicalIndicators.rsi(df["close"], period=14)
-        macd_result = TechnicalIndicators.macd(df["close"], fast=12, slow=26, signal_period=9)
-        bb = TechnicalIndicators.bollinger_bands(df["close"], period=20, std_dev=2.0)
+        rsi_series = TechnicalIndicators.rsi(df, period=14)
+        _macd_line, _signal_line, hist_series = TechnicalIndicators.macd(
+            df, fast=12, slow=26, signal=9
+        )
+        bb_upper, bb_mid, bb_lower = TechnicalIndicators.bollinger_bands(
+            df, period=20, std=2.0
+        )
         atr_series = TechnicalIndicators.atr(df, period=14)
         vol_ratio_series = TechnicalIndicators.volume_sma_ratio(df, period=20)
 
@@ -164,11 +168,11 @@ class CryptoScalpStrategy(Strategy):
         rsi_cur = float(rsi_series.iloc[-1])
         rsi_prev = float(rsi_series.iloc[-2])
 
-        hist_cur = float(macd_result.histogram.iloc[-1])
-        hist_prev = float(macd_result.histogram.iloc[-2])
+        hist_cur = float(hist_series.iloc[-1])
+        hist_prev = float(hist_series.iloc[-2])
 
         close_cur = float(df["close"].iloc[-1])
-        bb_mid = float(bb.middle.iloc[-1])
+        bb_mid_val = float(bb_mid.iloc[-1])
 
         vol_ratio = float(vol_ratio_series.iloc[-1])
         atr_val = float(atr_series.iloc[-1])
@@ -178,12 +182,12 @@ class CryptoScalpStrategy(Strategy):
             "rsi_prev": round(rsi_prev, 4),
             "macd_hist": round(hist_cur, 8),
             "macd_hist_prev": round(hist_prev, 8),
-            "bb_mid": round(bb_mid, 8),
-            "bb_upper": round(float(bb.upper.iloc[-1]), 8),
-            "bb_lower": round(float(bb.lower.iloc[-1]), 8),
+            "bb_upper": round(float(bb_upper.iloc[-1]), 8),
+            "bb_mid": round(bb_mid_val, 8),
+            "bb_lower": round(float(bb_lower.iloc[-1]), 8),
             "atr": round(atr_val, 8),
             "vol_ratio": round(vol_ratio, 4),
-            "regime": regime.value,
+            "regime": regime,
         }
 
         # ── BUY conditions ────────────────────────────────────────────────────
@@ -194,7 +198,7 @@ class CryptoScalpStrategy(Strategy):
         )
         macd_bull = hist_cur > 0.0 and hist_cur > hist_prev
         vol_ok = vol_ratio > _VOL_RATIO_THRESHOLD
-        price_above_mid = close_cur > bb_mid
+        price_above_mid = close_cur > bb_mid_val
 
         n_bull_conditions = sum([
             rsi_bull_cross or rsi_bull_range,
@@ -206,7 +210,7 @@ class CryptoScalpStrategy(Strategy):
         # ── SELL conditions ───────────────────────────────────────────────────
         rsi_bear_cross = (rsi_prev > _RSI_BEAR_CROSS) and (rsi_cur <= _RSI_BEAR_CROSS)
         macd_bear = hist_cur < 0.0 and hist_cur < hist_prev
-        price_below_mid = close_cur < bb_mid
+        price_below_mid = close_cur < bb_mid_val
 
         n_bear_conditions = sum([
             rsi_bear_cross,
@@ -222,8 +226,8 @@ class CryptoScalpStrategy(Strategy):
         if not all_bull and not all_bear:
             return None
 
-        # Choose the side; if somehow both fire simultaneously, prefer the one
-        # with cleaner RSI alignment (edge case in volatile regimes).
+        # If both fire simultaneously (edge case in volatile regimes), prefer
+        # the direction consistent with RSI level.
         if all_bull and all_bear:
             side = "BUY" if rsi_cur >= 50.0 else "SELL"
         elif all_bull:
@@ -244,21 +248,24 @@ class CryptoScalpStrategy(Strategy):
         rr = self._rr_ratio(entry_price, stop_price, target_price)
 
         # ── Signal strength ───────────────────────────────────────────────────
-        # Components:
-        #   1. Condition count (all 4 required, already guaranteed here) → base 0.5
-        #   2. RSI momentum component (how far past the threshold) → up to 0.2
-        #   3. Volume excess component (how much above 1.5×) → up to 0.15
-        #   4. Regime bonus (TRENDING > VOLATILE) → up to 0.15
+        # Composed from:
+        #   0.50  base for all four conditions being met
+        #   0.20  RSI momentum component (how far past the threshold)
+        #   0.15  volume excess component (how much above 1.5×)
+        #   0.15  regime bonus (TRENDING scores higher than VOLATILE)
         if side == "BUY":
-            rsi_excess = min((rsi_cur - _RSI_BULL_CROSS) / 20.0, 1.0)  # normalised 0–1
+            rsi_excess = min((rsi_cur - _RSI_BULL_CROSS) / 20.0, 1.0)
         else:
             rsi_excess = min((_RSI_BEAR_CROSS - rsi_cur) / 20.0, 1.0)
 
+        # Clamp to [0, 1] — RSI may be below the threshold in the cross case
+        rsi_excess = max(rsi_excess, 0.0)
+
         vol_excess = min((vol_ratio - _VOL_RATIO_THRESHOLD) / 1.5, 1.0)
-        regime_bonus = 1.0 if regime == MarketRegime.TRENDING else 0.6
+        regime_bonus = 1.0 if regime == "TRENDING" else 0.6
 
         strength = (
-            0.50                        # base for all-conditions-met
+            0.50
             + 0.20 * rsi_excess
             + 0.15 * vol_excess
             + 0.15 * regime_bonus
@@ -290,7 +297,7 @@ class CryptoScalpStrategy(Strategy):
             entry=entry_price,
             stop=stop_price,
             target=target_price,
-            regime=regime.value,
+            regime=regime,
             actionable=signal.is_actionable,
         )
 

@@ -101,9 +101,11 @@ Before architecture: understand what the targets demand mathematically.
 
 ### 5.1 Target Instruments
 
-- **Crypto spot + perpetual futures** (Binance/Kraken): highest volatility, 24/7, no PDT rule
-- **Micro-cap momentum stocks** (if broker allows): 5–20% single-day moves common
-- **Options** (if capital > £500): defined-risk leverage
+> **UK Note:** Crypto derivatives (futures, perpetual swaps, leveraged tokens) are banned for UK retail clients by the FCA. Phase 1 uses **spot crypto only** via Kraken (FCA registered). The compounding still works — high frequency spot scalping at 1–3% per trade × 5–15 trades/day compounds rapidly.
+
+- **Crypto spot** (Kraken): BTC/USD, ETH/USD, SOL/USD — 24/7, high volatility, no PDT rule, FCA compliant
+- **Micro-cap momentum stocks** (IBKR, Phase 1 supplement if balance > £500): 5–20% single-day moves
+- **Options** (IBKR, Phase 1 supplement if capital > £1,000): defined-risk leverage on US stocks
 
 ### 5.2 Core Phase 1 Strategies
 
@@ -565,34 +567,48 @@ MAX_DRAWDOWN_PCT=0.35
 
 > **Note:** Trading212 does **not** expose a public API for automated/programmatic trading — it only supports manual trading and copy-trading. The platforms below all provide REST + WebSocket APIs suitable for autonomous operation.
 
-### 18.1 Broker Comparison Matrix
+### 18.1 UK Regulatory Note on Crypto
 
-| Broker | Asset Classes | API Type | UK Legal | Min Deposit | Leverage (retail) | Paper Trading | Best For |
-|--------|--------------|----------|----------|-------------|-------------------|---------------|----------|
-| **Alpaca Markets** | US stocks, ETFs | REST + WS | Yes (passporting) | £0 | No leverage (stock broker) | Yes (free) | Phase 2 stocks/ETFs |
-| **Interactive Brokers (IBKR)** | Stocks, options, futures, forex, crypto | TWS API + REST | Yes (FCA reg.) | £0 (£2K for margin) | 5:1 stocks (Pro) | Yes | Best all-round for Phase 2 |
-| **Binance** | Crypto spot + futures | REST + WS | Yes (FCA registered) | £0 | 125× (futures) | Yes (testnet) | Phase 1 crypto scalping |
-| **Kraken** | Crypto spot + futures | REST + WS | Yes (FCA registered) | £0 | 5× (retail UK) | No | Phase 1/2 crypto |
-| **Saxo Bank** | Stocks, ETFs, options, CFDs, forex | OpenAPI REST | Yes (FCA reg.) | £500 | 5:1 stocks | No | Phase 2 multi-asset |
-| **Capital.com** | CFDs (stocks, indices, crypto, forex) | REST API | Yes (FCA reg.) | £20 | 5:1 stocks CFD | Yes | Phase 1 leveraged CFDs |
-| **Oanda** | Forex, indices CFDs | REST + Stream API | Yes (FCA reg.) | £0 | 30:1 forex | Yes (demo) | Forex-focused Phase 2 |
-| **IG Group** | Stocks, CFDs, options, spread betting | REST API | Yes (FCA reg.) | £250 | 5:1 stocks CFD | Yes (demo) | Spread betting (tax-free!) |
+> **Important:** Binance withdrew from the UK market in August 2023 and is no longer available to UK residents. Additionally, the FCA **banned crypto derivatives (futures, leveraged CFDs) for retail UK clients in January 2021**. This means:
+> - No Binance
+> - No crypto futures or leveraged derivatives for retail accounts
+> - Crypto must be traded **spot only** unless you qualify as a professional client
+>
+> The Phase 1 strategy is adjusted accordingly — high-frequency spot scalping on volatile assets (BTC, ETH, SOL) still compounds rapidly at smaller per-trade targets.
 
-### 18.2 Recommended Broker Stack
+### 18.2 Broker Comparison Matrix
+
+| Broker | Asset Classes | API Type | UK FCA Status | Min Deposit | Python SDK | Paper/Demo | Best For |
+|--------|--------------|----------|---------------|-------------|------------|------------|----------|
+| **Kraken** | Crypto spot | REST + WS v2 | FCA registered (Payward Ltd) | £0 | `krakenex` | No (use app paper mode) | **Phase 1 primary** |
+| **Coinbase Advanced Trade** | Crypto spot | REST + WS | FCA registered | £0 | `coinbase-advanced-py` | No (use app paper mode) | Phase 1 backup |
+| **Bitstamp** | Crypto spot | REST + WS | FCA registered (Bitstamp Europe) | £0 | `bitstamp` | No | Phase 1 alt |
+| **Interactive Brokers (IBKR)** | Stocks, ETFs, options, futures, forex | TWS API + REST | FCA regulated | £0 (£2K for margin) | `ib_insync` | Yes (paper account) | **Phase 2 primary** |
+| **Alpaca Markets** | US stocks, ETFs | REST + WS | FCA passporting | £0 | `alpaca-py` | Yes (free) | Phase 2 stocks |
+| **Saxo Bank** | Stocks, ETFs, options, CFDs, forex | OpenAPI REST | FCA regulated | £500 | REST via `httpx` | No | Phase 2 multi-asset |
+| **IG Group** | Stocks, spread betting, CFDs | REST API | FCA regulated | £250 | REST via `httpx` | Yes (demo) | Phase 2 tax-free (spread betting) |
+| **Oanda** | Forex, indices CFDs | REST + Stream API | FCA regulated | £0 | `oandapy3` | Yes (demo) | Phase 2 forex |
+
+### 18.3 Recommended Broker Stack
 
 ```
-Phase 1 (£100 → £10K):
-  Primary: Binance (crypto futures, highest leverage, deepest liquidity)
-  Backup:  Kraken (crypto spot, more conservative)
+Phase 1 (£100 → £10K) — Crypto spot only:
+  Primary:  Kraken (FCA registered, deep BTC/ETH/SOL liquidity, WS API v2)
+  Backup:   Coinbase Advanced Trade (FCA registered, good API, higher fees)
+  Strategy: High-frequency spot scalping — no leverage, rely on position sizing
+            and compounding. Smaller per-trade targets (1–3%) compensated by
+            higher trade frequency (5–15 trades/day).
 
 Phase 2 (£10K → £1M):
-  Stocks/ETFs:  Interactive Brokers (best API, options support, global markets)
-  Crypto:       Binance or Kraken (maintain crypto allocation)
-  Tax-free:     IG Group via Spread Betting account (UK tax-free profits!)
+  Stocks/ETFs/Options: Interactive Brokers (best API, global markets, FCA)
+  Crypto:              Kraken (maintain 20–30% crypto allocation, spot)
+  Tax-free profits:    IG Group Spread Betting account (no CGT on winnings!)
 ```
 
-### 18.3 Why Not Trading212
-Trading212 is excellent for manual retail investing (fractional shares, ISA wrapper) but has no public API. Attempts to automate it require scraping the UI which violates their ToS and can result in account bans. The brokers above are purpose-built for programmatic trading.
+### 18.4 Why Not Trading212 or Binance
+- **Trading212:** No public API — automation requires UI scraping which violates ToS
+- **Binance:** Exited UK market August 2023; no longer available to UK residents
+- **Crypto futures/leverage:** FCA-banned for UK retail since January 2021 — spot only
 
 ### 18.4 Broker API Setup
 
@@ -1060,16 +1076,20 @@ git --version
 
 Do this while code is being set up. Both accounts can run in parallel.
 
-#### 2a. Binance (Phase 1 — Crypto)
-1. Go to binance.com → Register with your email
-2. Complete KYC identity verification (passport/driving licence — required for UK)
-3. Enable 2FA (Google Authenticator recommended)
-4. Go to **Account → API Management → Create API**
-   - Label: `autonomous-trader`
-   - Enable: ✅ Read Info, ✅ Spot & Margin Trading, ✅ Futures Trading
-   - Restrict to your home IP address for security
-5. **Save the API Key and Secret Key** — the secret is shown only once
-6. To use the testnet first: visit `testnet.binancefuture.com` → generate testnet keys separately
+#### 2a. Kraken (Phase 1 — Crypto, UK compliant)
+
+> Binance exited the UK market in August 2023 and is no longer available to UK residents. Kraken (Payward Ltd) is FCA registered and fully legal for UK users.
+
+1. Go to kraken.com → Create Account with your email
+2. Complete KYC (Starter tier: email + phone; Intermediate tier: passport/driving licence — required for API trading)
+3. Enable 2FA under **Security → Two-Factor Authentication**
+4. Go to **Security → API → Add Key**
+   - Key name: `autonomous-trader`
+   - Permissions: ✅ Query Funds, ✅ Query Open Orders & Trades, ✅ Create & Modify Orders, ✅ Cancel/Close Orders
+   - Restrict to your home IP (optional but recommended)
+5. **Save the API Key and Private Key** — private key shown only once
+6. Deposit GBP: Funding → Deposit → GBP (via UK Faster Payments — usually instant, no fees)
+7. **No testnet on Kraken** — use the app's built-in paper trading mode (set `PAPER_TRADING=true`) to validate before going live
 
 #### 2b. Interactive Brokers (Phase 2 — Stocks/Options)
 1. Go to interactivebrokers.co.uk → Open Account
@@ -1149,10 +1169,13 @@ Open `.env` in any text editor and fill in:
 PAPER_TRADING=true
 INITIAL_CAPITAL_GBP=100
 
-# ===== BINANCE =====
-BINANCE_API_KEY=your_binance_api_key_here
-BINANCE_SECRET_KEY=your_binance_secret_key_here
-BINANCE_TESTNET=true          # Change to false only when ready for real money
+# ===== KRAKEN (Primary crypto broker — FCA registered, UK legal) =====
+KRAKEN_API_KEY=your_kraken_api_key_here
+KRAKEN_PRIVATE_KEY=your_kraken_private_key_here
+
+# ===== COINBASE ADVANCED TRADE (Backup, optional) =====
+COINBASE_API_KEY=
+COINBASE_PRIVATE_KEY=
 
 # ===== INTERACTIVE BROKERS =====
 IBKR_HOST=127.0.0.1
@@ -1288,19 +1311,17 @@ python reporting/daily_summary.py
 ```bash
 # Only proceed if Step 9 criteria are ALL met.
 
-# 10a. Fund your Binance account
-# Binance → Wallet → Fiat → Deposit GBP
-# Use bank transfer (faster payment) — usually arrives in minutes
+# 10a. Fund your Kraken account
+# Kraken → Funding → Deposit → GBP (Faster Payments)
+# Most UK banks: instant, no fees
 # Deposit £100
 
-# 10b. Convert to USDT (the trading currency)
-# Binance → Trade → BTC/GBP or use Convert feature
-# Convert £95 to USDT (keep £5 as buffer for fees)
+# 10b. Kraken holds GBP — the feed converts to crypto as needed per trade
+# No manual conversion required; the bot buys/sells crypto spot directly
 
 # 10c. Switch to live mode
 # Edit .env:
 PAPER_TRADING=false
-BINANCE_TESTNET=false
 
 # 10d. Start the live engine
 python core/engine.py --phase 1

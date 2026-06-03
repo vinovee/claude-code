@@ -1,0 +1,52 @@
+phase: 2
+description: "Systematic growth: £10,000 → £1,000,000"
+
+symbols:
+  crypto:
+    - BTCUSDT
+    - ETHUSDT
+    - SOLUSDT
+    - XRPUSDT
+    - ADAUSDT
+  pairs:
+    - [BTCUSDT, ETHUSDT]
+    - [ETHUSDT, SOLUSDT]
+
+strategies:
+  dual_momentum:
+    enabled: true
+    allocation_pct: 0.40
+    lookback_days: 90
+    top_quartile_threshold: 0.75
+    stop_pct: 0.08
+    target_pct: 0.20
+    rebalance_days: 7
+
+  pairs_trading:
+    enabled: true
+    allocation_pct: 0.20
+    zscore_entry: 2.0
+    zscore_exit: 0.5
+    lookback_periods: 200
+    kalman_update_periods: 20
+
+  mean_reversion:
+    enabled: true
+    allocation_pct: 0.20
+    timeframes: ["5m"]
+    deviation_threshold: 0.01
+    rsi_period: 5
+    rsi_oversold: 30
+    rsi_overbought: 70
+    atr_period: 14
+    stop_atr_mult: 1.0
+
+risk:
+  max_daily_loss_pct: 0.05
+  max_drawdown_pct: 0.20
+  max_position_size_pct: 0.10
+  min_rr_ratio: 2.5
+  max_spread_bps: 30
+  max_leverage: 1.0
+  max_concurrent_positions: 8
+  max_sector_exposure_pct: 0.30
